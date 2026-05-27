@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, SafeAreaView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, typography } from '../theme';
 import { GradientBackground } from '../components/ui/GradientBackground';
 import { GlassCard } from '../components/ui/GlassCard';
@@ -7,31 +8,50 @@ import { ChevronLeft, Share, Volume2, Sun, Moon, Sunrise, CalendarDays } from 'l
 import * as Location from 'expo-location';
 import { getPrayerTimesForDate, PrayerTimesData } from '../services/prayerTimes';
 import { getNextPrayer, formatTime, NextPrayerResult } from '../utils/timeUtils';
+import { useAppStore } from '../store/useAppStore';
 
 export default function TimesScreen() {
+  const locationLat = useAppStore(state => state.locationLat);
+  const locationLng = useAppStore(state => state.locationLng);
+  const locationNameCache = useAppStore(state => state.locationName);
+  const setLocation = useAppStore(state => state.setLocation);
+
   const [prayerTimes, setPrayerTimes] = useState<PrayerTimesData | null>(null);
   const [nextPrayer, setNextPrayer] = useState<NextPrayerResult | null>(null);
-  const [locationName, setLocationName] = useState('Riyadh, Saudi Arabia');
+  const [locationName, setLocationName] = useState(locationNameCache || 'Riyadh, Saudi Arabia');
   const [dateString, setDateString] = useState('');
 
   useEffect(() => {
     (async () => {
-      let lat = 24.7136; // Default Riyadh
-      let lng = 46.6753;
-      try {
-        let { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === 'granted') {
-          let location = await Location.getCurrentPositionAsync({});
-          lat = location.coords.latitude;
-          lng = location.coords.longitude;
-          
-          let geocode = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
-          if (geocode.length > 0) {
-            setLocationName(`${geocode[0].city || geocode[0].region}, ${geocode[0].country}`);
+      let lat = locationLat ?? 24.7136;
+      let lng = locationLng ?? 46.6753;
+      let locName = locationNameCache;
+
+      if (locationLat === null || locationLng === null) {
+        try {
+          let { status } = await Location.requestForegroundPermissionsAsync();
+          if (status === 'granted') {
+            let location = await Location.getLastKnownPositionAsync({});
+            if (!location) {
+              location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+            }
+            if (location) {
+              lat = location.coords.latitude;
+              lng = location.coords.longitude;
+            }
+            
+            Location.reverseGeocodeAsync({ latitude: lat, longitude: lng }).then(geocode => {
+              if (geocode && geocode.length > 0) {
+                const g = geocode[0];
+                locName = [g.city, g.subregion, g.region, g.country].filter(Boolean).join(', ');
+                setLocationName(locName || 'Unknown Location');
+                setLocation(lat, lng, locName || 'Unknown Location');
+              }
+            }).catch(e => console.log('Geocode error', e));
           }
+        } catch (error) {
+          console.log('Error getting location, using default', error);
         }
-      } catch (error) {
-        console.log('Error getting location, using default', error);
       }
       
       const times = getPrayerTimesForDate(new Date(), lat, lng);
@@ -86,7 +106,7 @@ export default function TimesScreen() {
                 </View>
                 <View style={styles.prayerRowRight}>
                   <Text style={styles.prayerTime}>{prayer.time}</Text>
-                  <TouchableOpacity>
+                  <TouchableOpacity onPress={() => alert(`Reminder toggled for ${prayer.name}`)}>
                     <Volume2 color={colors.textSecondary} size={20} />
                   </TouchableOpacity>
                 </View>
@@ -94,7 +114,7 @@ export default function TimesScreen() {
             ))}
           </View>
 
-          <TouchableOpacity style={styles.timetableButton}>
+          <TouchableOpacity style={styles.timetableButton} onPress={() => alert('Full timetable features coming soon.')}>
             <Text style={styles.timetableButtonText}>Today's Timetable</Text>
             <CalendarDays color={colors.textSecondary} size={16} />
           </TouchableOpacity>

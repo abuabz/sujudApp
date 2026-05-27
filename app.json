@@ -31,7 +31,14 @@
           "locationWhenInUsePermission": "Allow Sujud to access your location to calculate accurate prayer times."
         }
       ],
-      "expo-audio"
+      "expo-audio",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#0B1F12"
+        }
+      ]
     ],
     "extra": {
       "eas": {

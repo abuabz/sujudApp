@@ -1,17 +1,85 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, SafeAreaView, TouchableOpacity, Switch, Image } from 'react-native';
-import { ChevronRight, Settings, Bell, Palette, Clock, Volume2 } from 'lucide-react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Image, TextInput } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { ChevronRight, Settings, Bell, Palette, Clock, Volume2, Edit2, Check, MapPin } from 'lucide-react-native';
 import { colors, typography } from '../theme';
 import { GradientBackground } from '../components/ui/GradientBackground';
 import { GlassCard } from '../components/ui/GlassCard';
 import { useAppStore } from '../store/useAppStore';
 import { useAudioPlayer, setAudioModeAsync } from 'expo-audio';
+import * as Notifications from 'expo-notifications';
+import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { ActivityIndicator, Modal } from 'react-native';
 
 export default function ProfileScreen() {
-  const notificationsEnabled = useAppStore(state => state.notificationsEnabled);
-  const notificationSound = useAppStore(state => state.notificationSound);
+  const navigation = useNavigation<NativeStackNavigationProp<any>>();
+  const { notificationsEnabled, notificationSound, userName, userEmail, userAvatar, setProfile, locationName } = useAppStore();
   const setNotificationsEnabled = useAppStore(state => state.setNotificationsEnabled);
   const setNotificationSound = useAppStore(state => state.setNotificationSound);
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState(userName);
+  const [editEmail, setEditEmail] = useState(userEmail);
+  const [isEditingLocation, setIsEditingLocation] = useState(false);
+  const [isLocating, setIsLocating] = useState(false);
+
+  const handleAutoDetectLocation = async () => {
+    setIsLocating(true);
+    try {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        alert('Permission to access location was denied');
+        setIsLocating(false);
+        return;
+      }
+
+      let location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const lat = location.coords.latitude;
+      const lng = location.coords.longitude;
+      
+      const geocode = await Location.reverseGeocodeAsync({ latitude: lat, longitude: lng });
+      let locName = "Unknown Location";
+      if (geocode && geocode.length > 0) {
+        const g = geocode[0];
+        locName = [g.city, g.subregion, g.region, g.country].filter(Boolean).join(', ') || locName;
+      }
+      
+      setProfile(userName, userEmail, userAvatar); // update generic profile if needed
+      useAppStore.getState().setLocation(lat, lng, locName);
+      setIsEditingLocation(false);
+    } catch (error) {
+      alert('Error detecting location.');
+    }
+    setIsLocating(false);
+  };
+
+  const handleOpenMap = () => {
+    setIsEditingLocation(false);
+    navigation.navigate('Map');
+  };
+
+  const toggleEdit = () => {
+    if (isEditing) {
+      setProfile(editName, editEmail, userAvatar);
+    }
+    setIsEditing(!isEditing);
+  };
+
+  const pickImage = async () => {
+    let result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.5,
+    });
+
+    if (!result.canceled) {
+      setProfile(userName, userEmail, result.assets[0].uri);
+    }
+  };
 
   const normalSoundPlayer = useAudioPlayer(require('../../assets/normaltune.wav'));
   const bankSoundPlayer = useAudioPlayer(require('../../assets/allah-ho-akbar-4969.mp3'));
@@ -50,39 +118,37 @@ export default function ProfileScreen() {
   };
 
   const triggerTestNotification = async () => {
-    // 1. Play selected sound preview
-    playSound(notificationSound);
-
-    // 2. Trigger native HTML5 Browser Notification if running on Web
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      try {
-        if (Notification.permission === 'default') {
-          const permission = await Notification.requestPermission();
-          if (permission !== 'granted') {
-            console.log('Notification permission denied');
-            return;
-          }
-        }
-
-        if (Notification.permission === 'granted') {
-          const title = "سُجُود | Sujud Alert";
-          const options = {
-            body: `Time for your prayer reminder! Active sound alert: ${notificationSound === 'normal' ? 'Normal Tune' : 'Bank Sound'}.`,
-            icon: 'https://sujudapp.com/logo.png', // Fallback placeholder
-          };
-          new Notification(title, options);
-        }
-      } catch (e) {
-        console.log('Error triggering browser notification:', e);
-      }
-    } else {
-      // Mobile alert fallback in Expo Go when push hooks aren't fully registered
-      alert(`[Sujud Reminder Alert]\nTime for prayer! Playing sound: ${notificationSound === 'normal' ? 'Normal Tune' : 'Bank Sound'}.`);
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    let finalStatus = existingStatus;
+    if (existingStatus !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
     }
+
+    if (finalStatus !== 'granted') {
+      alert('Failed to get push token for push notification!');
+      return;
+    }
+
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: "سُجُود | Sujud Alert",
+        body: `Time for your prayer reminder! Active sound alert: ${notificationSound === 'normal' ? 'Normal Tune' : 'Bank Sound'}.`,
+        sound: notificationSound === 'normal' ? 'normaltune.wav' : 'bank.mp3',
+        categoryId: 'prayer_alert',
+      },
+      trigger: {
+        type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
+        seconds: 5,
+        channelId: notificationSound === 'normal' ? 'normal' : 'bank',
+      },
+    });
+
+    alert("Native Push Notification scheduled for 5 seconds from now! You can close the app or go to home screen to see it.");
   };
 
-  const SettingRow = ({ icon: Icon, title, subtitle, rightElement }: any) => (
-    <TouchableOpacity style={styles.settingRow}>
+  const SettingRow = ({ icon: Icon, title, subtitle, rightElement, onPress }: any) => (
+    <TouchableOpacity style={styles.settingRow} onPress={onPress} disabled={!onPress}>
       <View style={styles.settingLeft}>
         <View style={styles.iconContainer}>
           <Icon color={colors.textSecondary} size={20} />
@@ -103,26 +169,51 @@ export default function ProfileScreen() {
           <Text style={styles.title}>Profile</Text>
           
           <View style={styles.profileHeader}>
-            <View style={styles.avatarCircle}>
-              <Image source={require('../../assets/icon.png')} style={styles.avatarImage} />
-            </View>
+            <TouchableOpacity style={styles.avatarCircle} onPress={pickImage}>
+              {userAvatar ? (
+                <Image source={{ uri: userAvatar }} style={styles.avatarImage} />
+              ) : (
+                <Image source={require('../../assets/icon.png')} style={styles.avatarImage} />
+              )}
+            </TouchableOpacity>
             <View style={styles.profileTextContainer}>
-              <Text style={styles.name}>Ahmed Khan</Text>
-              <Text style={styles.memberText}>Member since May 2024</Text>
+              {isEditing ? (
+                <>
+                  <TextInput 
+                    style={styles.nameInput} 
+                    value={editName} 
+                    onChangeText={setEditName} 
+                    placeholderTextColor={colors.textSecondary}
+                  />
+                  <TextInput 
+                    style={styles.emailInput} 
+                    value={editEmail} 
+                    onChangeText={setEditEmail} 
+                    placeholderTextColor={colors.textSecondary}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                  />
+                </>
+              ) : (
+                <>
+                  <Text style={styles.name}>{userName}</Text>
+                  <Text style={styles.memberText}>{userEmail}</Text>
+                </>
+              )}
             </View>
+            <TouchableOpacity style={styles.editButton} onPress={toggleEdit}>
+              {isEditing ? <Check color={colors.accent} size={20} /> : <Edit2 color={colors.textSecondary} size={20} />}
+            </TouchableOpacity>
           </View>
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Settings</Text>
             <GlassCard intensity="dark" style={styles.settingsCard}>
               <SettingRow 
-                icon={Clock} 
-                title="Prayer Reminders" 
-              />
-              <SettingRow 
-                icon={Settings} 
-                title="Calculation Method" 
-                subtitle="Muslim World League"
+                icon={MapPin} 
+                title="Location" 
+                subtitle={locationName || "Unknown Location"}
+                onPress={() => setIsEditingLocation(true)}
               />
               
               {/* Interactive Push Notifications Toggle */}
@@ -225,6 +316,35 @@ export default function ProfileScreen() {
           </View>
 
         </ScrollView>
+
+        {/* Location Options Modal */}
+        <Modal transparent visible={isEditingLocation} animationType="fade" onRequestClose={() => setIsEditingLocation(false)}>
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Set Location</Text>
+              
+              <TouchableOpacity style={styles.modalButton} onPress={handleAutoDetectLocation} disabled={isLocating}>
+                {isLocating ? (
+                  <ActivityIndicator color={colors.background} />
+                ) : (
+                  <>
+                    <MapPin color={colors.background} size={20} />
+                    <Text style={styles.modalButtonText}>Auto-Detect Location</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              
+              <TouchableOpacity style={[styles.modalButton, styles.modalButtonSecondary]} onPress={handleOpenMap}>
+                <Text style={styles.modalButtonTextSecondary}>Pick on Map</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.modalCancel} onPress={() => setIsEditingLocation(false)}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+
       </SafeAreaView>
     </GradientBackground>
   );
@@ -387,5 +507,97 @@ const styles = StyleSheet.create({
     fontFamily: typography.fonts.bold,
     fontSize: 13,
     color: colors.background,
+  },
+  nameInput: {
+    fontFamily: typography.fonts.medium,
+    fontSize: typography.sizes.xl,
+    color: colors.text,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.accent,
+    paddingVertical: 2,
+    marginBottom: 4,
+    minWidth: 150,
+  },
+  emailInput: {
+    fontFamily: typography.fonts.regular,
+    fontSize: 12,
+    color: colors.textSecondary,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.textSecondary,
+    paddingVertical: 2,
+    minWidth: 150,
+  },
+  editButton: {
+    marginLeft: 'auto',
+    padding: 8,
+  },
+  locationInput: {
+    fontFamily: typography.fonts.medium,
+    fontSize: typography.sizes.md,
+    color: colors.text,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.accent,
+    minWidth: 200,
+    paddingVertical: 2,
+  },
+  locationCheckBtn: {
+    padding: 6,
+    borderRadius: 16,
+    backgroundColor: colors.accent,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#0F3819',
+    width: '100%',
+    padding: 24,
+    borderRadius: 24,
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontFamily: typography.fonts.primary,
+    fontSize: typography.sizes.xl,
+    color: colors.text,
+    marginBottom: 24,
+  },
+  modalButton: {
+    flexDirection: 'row',
+    backgroundColor: colors.accent,
+    width: '100%',
+    paddingVertical: 14,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  modalButtonText: {
+    fontFamily: typography.fonts.medium,
+    fontSize: 15,
+    color: colors.background,
+  },
+  modalButtonSecondary: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: colors.accent,
+  },
+  modalButtonTextSecondary: {
+    fontFamily: typography.fonts.medium,
+    fontSize: 15,
+    color: colors.accent,
+  },
+  modalCancel: {
+    marginTop: 8,
+    padding: 8,
+  },
+  modalCancelText: {
+    fontFamily: typography.fonts.regular,
+    fontSize: 14,
+    color: colors.textSecondary,
   },
 });

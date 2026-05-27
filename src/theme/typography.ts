@@ -1,9 +1,9 @@
 export const typography = {
   fonts: {
-    primary: 'Stapel-SemiExpanded', // The custom font we just added
-    regular: 'System', // Fallback
-    medium: 'System',
-    bold: 'System',
+    primary: 'Stapel-SemiExpanded',
+    regular: 'Stapel-SemiExpanded',
+    medium: 'Stapel-SemiExpanded',
+    bold: 'Stapel-SemiExpanded',
   },
   sizes: {
     xs: 12,

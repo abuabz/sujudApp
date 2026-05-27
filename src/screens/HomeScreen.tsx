@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, SafeAreaView, TouchableOpacity, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import tz_lookup from 'tz-lookup';
 import { colors, typography } from '../theme';
 import { GlassCard } from '../components/ui/GlassCard';
 import { GradientBackground } from '../components/ui/GradientBackground';
@@ -10,12 +12,21 @@ import * as Location from 'expo-location';
 import { getPrayerTimesForDate, PrayerTimesData } from '../services/prayerTimes';
 import { getNextPrayer, formatCountdown, formatTime, PrayerName, NextPrayerResult } from '../utils/timeUtils';
 import { usePrayerStore, PrayerName as StorePrayerName } from '../store/usePrayerStore';
+import { useAppStore } from '../store/useAppStore';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { SideMenuModal } from '../components/ui/SideMenuModal';
+import { Calendar, AlertCircle, MapPin } from 'lucide-react-native';
 
 export default function HomeScreen() {
+  const navigation = useNavigation<NativeStackNavigationProp<any>>();
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  
   const [loading, setLoading] = useState(true);
   const [prayerTimes, setPrayerTimes] = useState<PrayerTimesData | null>(null);
   const [nextPrayer, setNextPrayer] = useState<NextPrayerResult | null>(null);
   const [timeLeft, setTimeLeft] = useState('00:00:00');
+  const [localTime, setLocalTime] = useState('');
 
   const addRecord = usePrayerStore(state => state.addRecord);
   const records = usePrayerStore(state => state.records);
@@ -50,19 +61,54 @@ export default function HomeScreen() {
     return todaysRecords.some(r => r.prayerName === prayerName && (r.status === 'Completed' || r.status === 'Jamath' || r.status === 'Individual'));
   };
 
+  const missedPrayers = todaysRecords.filter(r => r.status === 'Missed' || r.status === 'Qaza');
+
+  const getHijriDate = () => {
+    try {
+      return new Intl.DateTimeFormat('en-u-ca-islamic-umalqura', {
+        day: 'numeric', month: 'long', year: 'numeric'
+      }).format(new Date());
+    } catch (e) {
+      return '14 Muharram 1446 AH';
+    }
+  };
+
+  const locationLat = useAppStore(state => state.locationLat);
+  const locationLng = useAppStore(state => state.locationLng);
+  const locationName = useAppStore(state => state.locationName);
+  const setLocation = useAppStore(state => state.setLocation);
+
   useEffect(() => {
     (async () => {
-      let lat = 24.7136; // Default Riyadh
-      let lng = 46.6753;
-      try {
-        let { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === 'granted') {
-          let location = await Location.getCurrentPositionAsync({});
-          lat = location.coords.latitude;
-          lng = location.coords.longitude;
+      let lat = locationLat ?? 24.7136; // Default Riyadh
+      let lng = locationLng ?? 46.6753;
+      let locName = null;
+
+      if (locationLat === null || locationLng === null) {
+        try {
+          let { status } = await Location.requestForegroundPermissionsAsync();
+          if (status === 'granted') {
+            let location = await Location.getLastKnownPositionAsync({});
+            if (!location) {
+              location = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+            }
+            if (location) {
+              lat = location.coords.latitude;
+              lng = location.coords.longitude;
+            }
+            
+            // Do not block rendering for reverse geocode
+            Location.reverseGeocodeAsync({ latitude: lat, longitude: lng }).then(geocode => {
+              if (geocode && geocode.length > 0) {
+                const g = geocode[0];
+                locName = [g.city, g.subregion, g.region, g.country].filter(Boolean).join(', ') || 'Unknown Location';
+                setLocation(lat, lng, locName);
+              }
+            }).catch(e => console.log('Geocode error', e));
+          }
+        } catch (error) {
+          console.log('Error getting location, using default', error);
         }
-      } catch (error) {
-        console.log('Error getting location, using default', error);
       }
       
       const times = getPrayerTimesForDate(new Date(), lat, lng);
@@ -74,25 +120,47 @@ export default function HomeScreen() {
       setNextPrayer(next);
       setTimeLeft(formatCountdown(next.time, now));
 
-      // 800ms smooth skeleton transition delay
+      // Small skeleton transition delay
       setTimeout(() => {
         setLoading(false);
-      }, 800);
+      }, 150);
     })();
   }, []);
 
   useEffect(() => {
     if (!prayerTimes) return;
+    
+    let tz = 'Asia/Riyadh';
+    try {
+      if (locationLat && locationLng) {
+        tz = tz_lookup(locationLat, locationLng);
+      }
+    } catch (e) {
+      console.log('TZ error', e);
+    }
 
-    const interval = setInterval(() => {
+    const updateTime = () => {
       const now = new Date();
       const next = getNextPrayer(prayerTimes, now);
       setNextPrayer(next);
       setTimeLeft(formatCountdown(next.time, now));
-    }, 1000);
+      
+      try {
+        setLocalTime(now.toLocaleTimeString('en-US', {
+          timeZone: tz,
+          hour: '2-digit',
+          minute: '2-digit',
+        }));
+      } catch (e) {
+        setLocalTime(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+      }
+    };
+
+    updateTime(); // Initial call
+    const interval = setInterval(updateTime, 1000);
 
     return () => clearInterval(interval);
-  }, [prayerTimes]);
+  }, [prayerTimes, locationLat, locationLng]);
 
   const prayers = prayerTimes ? [
     { name: 'Fajr', time: formatTime(prayerTimes.fajr), icon: Moon, current: nextPrayer?.name === 'Fajr' },
@@ -108,23 +176,34 @@ export default function HomeScreen() {
 
   return (
     <GradientBackground>
+      <SideMenuModal visible={isMenuOpen} onClose={() => setIsMenuOpen(false)} />
       <SafeAreaView style={styles.safeArea}>
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity style={styles.iconButton}>
+          <TouchableOpacity style={styles.iconButton} onPress={() => setIsMenuOpen(true)}>
             <Menu color={colors.accent} size={24} />
           </TouchableOpacity>
           <View style={styles.logoContainer}>
             <Image source={require('../../assets/icon.png')} style={styles.logoImage} />
             <Text style={styles.logoText}>سُجُود</Text>
           </View>
-          <TouchableOpacity style={styles.iconButton}>
+          <TouchableOpacity style={styles.iconButton} onPress={() => navigation.navigate('Notifications')}>
             <Bell color={colors.accent} size={24} />
           </TouchableOpacity>
         </View>
 
         <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
           
+          {/* Location & Local Time Banner */}
+          <View style={styles.locationBanner}>
+            <MapPin color={colors.textSecondary} size={16} />
+            <Text style={styles.locationBannerText} numberOfLines={1}>
+              {locationName || 'Unknown Location'}
+            </Text>
+            <View style={styles.locationBannerDot} />
+            <Text style={styles.locationBannerTime}>{localTime}</Text>
+          </View>
+
           {/* Next Prayer Card */}
           <GlassCard style={styles.nextPrayerCard} intensity="dark">
             <View style={styles.nextPrayerHeader}>
@@ -137,6 +216,27 @@ export default function HomeScreen() {
             </View>
             <Text style={styles.nextPrayerCountdown}>{timeLeft} remaining</Text>
           </GlassCard>
+
+          {/* Daily Highlights */}
+          <View style={styles.highlightsContainer}>
+            <GlassCard style={styles.highlightCard} intensity="dark">
+              <View style={styles.highlightHeader}>
+                <Calendar color={colors.accent} size={18} />
+                <Text style={styles.highlightTitle}>Hijri Date</Text>
+              </View>
+              <Text style={styles.highlightValue} numberOfLines={1} adjustsFontSizeToFit>{getHijriDate()}</Text>
+              <Text style={styles.highlightSub}>Islamic Calendar</Text>
+            </GlassCard>
+
+            <GlassCard style={[styles.highlightCard, missedPrayers.length > 0 && styles.highlightCardWarning]} intensity="dark">
+              <View style={styles.highlightHeader}>
+                <AlertCircle color={missedPrayers.length > 0 ? '#FFA500' : colors.textSecondary} size={18} />
+                <Text style={[styles.highlightTitle, missedPrayers.length > 0 && { color: '#FFA500' }]}>Missed Today</Text>
+              </View>
+              <Text style={styles.highlightValue}>{missedPrayers.length}</Text>
+              <Text style={styles.highlightSub}>Prayers</Text>
+            </GlassCard>
+          </View>
 
           {/* Today's Prayer Times */}
           <GlassCard style={styles.todaysPrayersCard} intensity="dark">
@@ -237,6 +337,32 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingBottom: 40,
   },
+  locationBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    paddingHorizontal: 20,
+    gap: 8,
+  },
+  locationBannerText: {
+    fontFamily: typography.fonts.medium,
+    color: colors.textSecondary,
+    fontSize: 14,
+    maxWidth: '50%',
+  },
+  locationBannerDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.textSecondary,
+    opacity: 0.5,
+  },
+  locationBannerTime: {
+    fontFamily: typography.fonts.bold,
+    color: colors.text,
+    fontSize: 14,
+  },
   nextPrayerCard: {
     backgroundColor: '#0F3819',
     padding: 24,
@@ -275,6 +401,44 @@ const styles = StyleSheet.create({
     fontFamily: typography.fonts.regular,
     color: colors.text,
     fontSize: typography.sizes.sm,
+  },
+  highlightsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 30,
+    gap: 15,
+  },
+  highlightCard: {
+    flex: 1,
+    backgroundColor: '#0F3819',
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 0,
+  },
+  highlightCardWarning: {
+    backgroundColor: 'rgba(255, 165, 0, 0.1)',
+  },
+  highlightHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  highlightTitle: {
+    fontFamily: typography.fonts.medium,
+    color: colors.textSecondary,
+    fontSize: 12,
+  },
+  highlightValue: {
+    fontFamily: typography.fonts.medium,
+    color: colors.text,
+    fontSize: 16,
+    marginBottom: 4,
+  },
+  highlightSub: {
+    fontFamily: typography.fonts.regular,
+    color: colors.textSecondary,
+    fontSize: 11,
   },
   todaysPrayersCard: {
     backgroundColor: '#0F3819',

@@ -11,6 +11,8 @@ import ReportScreen from '../screens/ReportScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import QazaManagerScreen from '../screens/QazaManagerScreen';
 import AnalyticsScreen from '../screens/AnalyticsScreen';
+import NotificationsScreen from '../screens/NotificationsScreen';
+import MapScreen from '../screens/MapScreen';
 import { colors } from '../theme';
 
 const Tab = createBottomTabNavigator();
@@ -80,6 +82,8 @@ export default function AppNavigator() {
         <Stack.Screen name="Main" component={MainTabs} />
         <Stack.Screen name="QazaTracker" component={QazaManagerScreen} />
         <Stack.Screen name="PrayerAnalytics" component={AnalyticsScreen} />
+        <Stack.Screen name="Notifications" component={NotificationsScreen} />
+        <Stack.Screen name="Map" component={MapScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

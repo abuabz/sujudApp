@@ -20,44 +20,10 @@ interface PrayerState {
   getQazaCount: () => number;
 }
 
-const generateMockRecords = (): Record<string, PrayerRecord[]> => {
-  const mock: Record<string, PrayerRecord[]> = {};
-  const prayers: PrayerName[] = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'];
-  
-  // Generate mock data for the last 6 days
-  for (let i = 1; i <= 6; i++) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().split('T')[0];
-    
-    mock[dateStr] = prayers.map(prayerName => {
-      // Fajr and Isha are occasionally Missed, others are mostly Completed
-      let status: PrayerStatus = 'Completed';
-      const rand = Math.random();
-      if (prayerName === 'Fajr') {
-        status = rand > 0.45 ? 'Completed' : 'Missed';
-      } else if (prayerName === 'Isha') {
-        status = rand > 0.3 ? 'Completed' : 'Missed';
-      } else {
-        status = rand > 0.15 ? 'Completed' : 'Missed';
-      }
-      
-      return {
-        id: `${dateStr}-${prayerName}`,
-        date: dateStr,
-        prayerName,
-        status,
-        timestamp: d.getTime(),
-      };
-    });
-  }
-  return mock;
-};
-
 export const usePrayerStore = create<PrayerState>()(
   persist(
     (set, get) => ({
-      records: generateMockRecords(),
+      records: {},
       addRecord: (record) => {
         set((state) => {
           const dateRecords = state.records[record.date] || [];
