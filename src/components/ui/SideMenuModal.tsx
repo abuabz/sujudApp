@@ -4,6 +4,7 @@ import { X, Home, Settings, Info, Globe, Heart } from 'lucide-react-native';
 import { useNavigation, NavigationProp } from '@react-navigation/native';
 import { colors, typography } from '../../theme';
 import { GlassCard } from './GlassCard';
+import { BlurView } from 'expo-blur';
 
 interface SideMenuModalProps {
   visible: boolean;
@@ -14,6 +15,8 @@ const { width, height } = Dimensions.get('window');
 
 export const SideMenuModal = ({ visible, onClose }: SideMenuModalProps) => {
   const slideAnim = useRef(new Animated.Value(-width)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const [showModal, setShowModal] = React.useState(visible);
   const [showAbout, setShowAbout] = React.useState(false);
   const navigation = useNavigation<NavigationProp<any>>();
 
@@ -32,29 +35,43 @@ export const SideMenuModal = ({ visible, onClose }: SideMenuModalProps) => {
 
   useEffect(() => {
     if (visible) {
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
+      setShowModal(true);
+      Animated.parallel([
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 350,
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 350,
+          useNativeDriver: true,
+        })
+      ]).start();
     } else {
-      Animated.timing(slideAnim, {
-        toValue: -width,
-        duration: 300,
-        useNativeDriver: true,
-      }).start();
+      Animated.parallel([
+        Animated.timing(slideAnim, {
+          toValue: -width,
+          duration: 250,
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 250,
+          useNativeDriver: true,
+        })
+      ]).start(() => {
+        setShowModal(false);
+      });
     }
   }, [visible]);
 
-  if (!visible) return null;
-
   return (
-    <Modal transparent visible={visible} onRequestClose={onClose} animationType="none">
+    <Modal transparent visible={showModal} onRequestClose={onClose} animationType="none">
       <View style={styles.overlay}>
-        <Pressable 
-          style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]} 
-          onPress={onClose} 
-        />
+        <Animated.View style={[StyleSheet.absoluteFill, { opacity: fadeAnim, backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        </Animated.View>
 
         <Animated.View style={[styles.menuContainer, { transform: [{ translateX: slideAnim }] }]}>
           <GlassCard style={styles.glassContainer} intensity="dark" blur={true}>
@@ -86,7 +103,7 @@ export const SideMenuModal = ({ visible, onClose }: SideMenuModalProps) => {
 
         {/* About Modal */}
         <Modal transparent visible={showAbout} animationType="fade" onRequestClose={() => setShowAbout(false)}>
-          <View style={styles.aboutOverlay}>
+          <BlurView intensity={100} tint="dark" experimentalBlurMethod="dimezisBlurView" style={styles.aboutOverlay}>
             <GlassCard style={styles.aboutContent} intensity="dark" blur={true}>
               <View style={styles.aboutHeader}>
                 <Text style={styles.aboutTitle}>About Sujud</Text>
@@ -120,7 +137,7 @@ export const SideMenuModal = ({ visible, onClose }: SideMenuModalProps) => {
                 <Text style={styles.donationButtonText}>Donate via GPay / UPI</Text>
               </TouchableOpacity>
             </GlassCard>
-          </View>
+          </BlurView>
         </Modal>
       </View>
     </Modal>
@@ -143,7 +160,7 @@ const styles = StyleSheet.create({
     borderRightColor: 'rgba(255,255,255,0.1)',
     paddingTop: 50,
     paddingHorizontal: 20,
-    backgroundColor: 'transparent',
+    backgroundColor: 'rgba(0, 0, 0, 0.56)',
   },
   header: {
     flexDirection: 'row',
@@ -178,9 +195,9 @@ const styles = StyleSheet.create({
   },
   aboutOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.74)', // Slightly darken on top of blur
   },
   aboutContent: {
     width: width * 0.85,

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ImageBackground, Animated } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ImageBackground, Animated, Modal, Pressable, Linking } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import tz_lookup from 'tz-lookup';
 import { colors, typography } from '../theme';
@@ -7,7 +7,7 @@ import { GlassCard } from '../components/ui/GlassCard';
 import { GradientBackground } from '../components/ui/GradientBackground';
 import { CircularProgress } from '../components/ui/CircularProgress';
 import { HomeSkeleton } from '../components/ui/HomeSkeleton';
-import { Menu, Bell, Sun, Moon, Sunrise, CircleCheck, Circle, Sparkles } from 'lucide-react-native';
+import { Menu, Bell, Sun, Moon, Sunrise, CircleCheck, Circle, Sparkles, Globe, Heart } from 'lucide-react-native';
 import * as Location from 'expo-location';
 import { getPrayerTimesForDate, PrayerTimesData } from '../services/prayerTimes';
 import { getNextPrayer, formatCountdown, formatTime, PrayerName, NextPrayerResult } from '../utils/timeUtils';
@@ -36,6 +36,22 @@ export default function HomeScreen() {
   const records = usePrayerStore(state => state.records);
   const todayDateString = new Date().toISOString().split('T')[0];
   const todaysRecords = records[todayDateString] || [];
+  const todayCompletedCount = todaysRecords.filter(r => r.status === 'Completed' || r.status === 'Jamath' || r.status === 'Individual').length;
+
+  const [showCongratsModal, setShowCongratsModal] = useState(false);
+  const lastCongratsDate = useAppStore(state => state.lastCongratsDate);
+  const setLastCongratsDate = useAppStore(state => state.setLastCongratsDate);
+
+  useEffect(() => {
+    if (todayCompletedCount === 5 && lastCongratsDate !== todayDateString) {
+      const timer = setTimeout(() => {
+        setShowCongratsModal(true);
+        setLastCongratsDate(todayDateString);
+      }, 800);
+      return () => clearTimeout(timer);
+    }
+  }, [todayCompletedCount, lastCongratsDate, todayDateString]);
+
 
   const togglePrayerCompletion = (prayerName: StorePrayerName) => {
     const existing = todaysRecords.find(r => r.prayerName === prayerName);
@@ -315,6 +331,12 @@ export default function HomeScreen() {
 
         <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
 
+          {/* TEMPORARY CONGRATS TEST BUTTON */}
+          <TouchableOpacity 
+            style={{ backgroundColor: '#D4AF37', padding: 12, borderRadius: 10, marginHorizontal: 20, marginBottom: 20, alignItems: 'center' }}
+            onPress={() => setShowCongratsModal(true)}>
+            <Text style={{ color: 'white', fontFamily: typography.fonts.bold }}>TEST CONGRATS MODAL</Text>
+          </TouchableOpacity>
 
           {/* Location & Local Time Banner */}
           <View style={styles.locationBanner}>
@@ -475,6 +497,51 @@ export default function HomeScreen() {
 
         </ScrollView>
       </SafeAreaView>
+
+      <Modal transparent visible={showCongratsModal} animationType="fade" onRequestClose={() => setShowCongratsModal(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+          <GlassCard style={{ width: '100%', alignItems: 'center', padding: 25 }} intensity="dark" blur={true}>
+            <Text style={{ fontFamily: typography.fonts.primary, fontSize: 36, color: colors.highlight, marginBottom: 8, textAlign: 'center' }}>
+              مَا شَاءَ اللَّهُ
+            </Text>
+            <Text style={{ fontFamily: typography.fonts.medium, fontSize: 16, color: colors.white, textAlign: 'center', marginBottom: 20, lineHeight: 24 }}>
+              May Allah accept your good deeds.
+            </Text>
+
+            <View style={{ width: '100%', height: 1, backgroundColor: 'rgba(255,255,255,0.1)', marginBottom: 20 }} />
+
+            <View style={{ width: '100%', alignItems: 'center' }}>
+              <Text style={{ fontFamily: typography.fonts.regular, color: colors.textSecondary, fontSize: 12, marginBottom: 8 }}>Developed by Muhd Aboobacker P</Text>
+              
+              <View style={{ flexDirection: 'row', gap: 20, marginBottom: 20 }}>
+                <TouchableOpacity
+                  style={{ flexDirection: 'row', alignItems: 'center' }}
+                  onPress={() => Linking.openURL('https://abuparambil.vercel.app')}
+                >
+                  <Globe color={colors.textSecondary} size={14} />
+                  <Text style={{ fontFamily: typography.fonts.medium, color: colors.textSecondary, fontSize: 12, marginLeft: 6 }}>abuparambil</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(212, 175, 55, 0.15)', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 12 }}
+                  onPress={() => Linking.openURL('upi://pay?pa=mohamedaboobackerp-2@okicici&pn=Aboobacker&cu=INR')}
+                >
+                  <Heart color="#D4AF37" size={14} fill="rgba(212,175,55,0.2)" />
+                  <Text style={{ fontFamily: typography.fonts.bold, color: '#D4AF37', fontSize: 12, marginLeft: 6 }}>Sodhaka</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <TouchableOpacity 
+              style={{ backgroundColor: 'rgba(255,255,255,0.1)', paddingVertical: 14, paddingHorizontal: 40, borderRadius: 20, width: '100%', alignItems: 'center' }}
+              onPress={() => setShowCongratsModal(false)}
+            >
+              <Text style={{ fontFamily: typography.fonts.bold, color: colors.white, fontSize: 16 }}>Alhamdulillah (Close)</Text>
+            </TouchableOpacity>
+          </GlassCard>
+        </View>
+      </Modal>
+
     </GradientBackground>
   );
 }

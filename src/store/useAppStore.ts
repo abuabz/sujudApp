@@ -14,6 +14,7 @@ interface AppState {
   userName: string;
   userEmail: string;
   userAvatar: string | null;
+  lastCongratsDate: string | null;
   setFirstLaunch: (val: boolean) => void;
   setTheme: (theme: 'dark' | 'light' | 'system') => void;
   setNotificationsEnabled: (val: boolean) => void;
@@ -21,6 +22,7 @@ interface AppState {
   setLocation: (lat: number, lng: number, name: string | null) => void;
   setAppStartDate: (date: string) => void;
   setProfile: (name: string, email: string, avatar: string | null) => void;
+  setLastCongratsDate: (date: string) => void;
   resetApp: () => void;
   restoreState: (state: Partial<AppState>) => void;
 }
@@ -39,6 +41,7 @@ export const useAppStore = create<AppState>()(
       userName: 'Ahmed Khan',
       userEmail: 'ahmed@example.com',
       userAvatar: null,
+      lastCongratsDate: null,
       setFirstLaunch: (val) => set({ isFirstLaunch: val }),
       setTheme: (theme) => set({ theme }),
       setNotificationsEnabled: (val) => set({ notificationsEnabled: val }),
@@ -46,6 +49,7 @@ export const useAppStore = create<AppState>()(
       setLocation: (lat, lng, name) => set({ locationLat: lat, locationLng: lng, locationName: name }),
       setAppStartDate: (date) => set({ appStartDate: date }),
       setProfile: (name, email, avatar) => set({ userName: name, userEmail: email, userAvatar: avatar }),
+      setLastCongratsDate: (date) => set({ lastCongratsDate: date }),
       resetApp: () => set({
         isFirstLaunch: true,
         locationLat: null,
@@ -54,6 +58,7 @@ export const useAppStore = create<AppState>()(
         userName: '',
         userEmail: '',
         userAvatar: null,
+        lastCongratsDate: null,
         appStartDate: new Date().toISOString().split('T')[0],
       }),
       restoreState: (newState) => set((state) => ({ ...state, ...newState })),
