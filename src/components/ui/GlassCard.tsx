@@ -1,13 +1,29 @@
 import React from 'react';
 import { View, StyleSheet, ViewProps } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { colors } from '../../theme';
 
 interface GlassCardProps extends ViewProps {
   children: React.ReactNode;
   intensity?: 'light' | 'medium' | 'dark';
+  blur?: boolean;
 }
 
-export function GlassCard({ children, style, intensity = 'medium', ...props }: GlassCardProps) {
+export function GlassCard({ children, style, intensity = 'medium', blur = false, ...props }: GlassCardProps) {
+  if (blur) {
+    const blurIntensity = intensity === 'light' ? 30 : intensity === 'medium' ? 60 : 90;
+    return (
+      <BlurView 
+        intensity={blurIntensity} 
+        tint="dark"
+        style={[styles.card, { backgroundColor: 'transparent' }, style]}
+        {...props}
+      >
+        {children}
+      </BlurView>
+    );
+  }
+
   // Simulating glassmorphism without expo-blur for cross-platform robustness
   // Using semi-transparent background and subtle borders
   const bgOpacity = intensity === 'light' ? '1A' : intensity === 'medium' ? '33' : '4D';

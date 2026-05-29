@@ -10,6 +10,7 @@ interface AppState {
   locationLat: number | null;
   locationLng: number | null;
   locationName: string | null;
+  appStartDate: string; // YYYY-MM-DD
   userName: string;
   userEmail: string;
   userAvatar: string | null;
@@ -18,7 +19,10 @@ interface AppState {
   setNotificationsEnabled: (val: boolean) => void;
   setNotificationSound: (sound: 'normal' | 'bank') => void;
   setLocation: (lat: number, lng: number, name: string | null) => void;
+  setAppStartDate: (date: string) => void;
   setProfile: (name: string, email: string, avatar: string | null) => void;
+  resetApp: () => void;
+  restoreState: (state: Partial<AppState>) => void;
 }
 
 export const useAppStore = create<AppState>()(
@@ -31,6 +35,7 @@ export const useAppStore = create<AppState>()(
       locationLat: null,
       locationLng: null,
       locationName: null,
+      appStartDate: new Date().toISOString().split('T')[0],
       userName: 'Ahmed Khan',
       userEmail: 'ahmed@example.com',
       userAvatar: null,
@@ -39,7 +44,19 @@ export const useAppStore = create<AppState>()(
       setNotificationsEnabled: (val) => set({ notificationsEnabled: val }),
       setNotificationSound: (sound) => set({ notificationSound: sound }),
       setLocation: (lat, lng, name) => set({ locationLat: lat, locationLng: lng, locationName: name }),
+      setAppStartDate: (date) => set({ appStartDate: date }),
       setProfile: (name, email, avatar) => set({ userName: name, userEmail: email, userAvatar: avatar }),
+      resetApp: () => set({
+        isFirstLaunch: true,
+        locationLat: null,
+        locationLng: null,
+        locationName: null,
+        userName: '',
+        userEmail: '',
+        userAvatar: null,
+        appStartDate: new Date().toISOString().split('T')[0],
+      }),
+      restoreState: (newState) => set((state) => ({ ...state, ...newState })),
     }),
     {
       name: 'sujud-app-storage',

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useState, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, ImageBackground } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, typography } from '../theme';
 import { GradientBackground } from '../components/ui/GradientBackground';
@@ -8,56 +8,125 @@ import { CircularProgress } from '../components/ui/CircularProgress';
 import { ChevronLeft, Calendar as CalendarIcon, ChevronRight, CircleCheck, Circle } from 'lucide-react-native';
 import { BarChart } from 'react-native-gifted-charts';
 import { usePrayerStore, PrayerName as StorePrayerName } from '../store/usePrayerStore';
+import { useAppStore } from '../store/useAppStore';
+import { getPrayerTimesForDate } from '../services/prayerTimes';
+import * as Haptics from 'expo-haptics';
 
 export default function ReportScreen() {
   const today = new Date();
   const [selectedDate, setSelectedDate] = useState<string>(today.toISOString().split('T')[0]);
+  const lastTickIndex = useRef(0);
   
   const records = usePrayerStore(state => state.records);
   const addRecord = usePrayerStore(state => state.addRecord);
 
-  // Generate the last 7 days (including today)
+  const appStartDateStr = useAppStore(state => state.appStartDate);
+  const locationLat = useAppStore(state => state.locationLat) ?? 24.7136;
+  const locationLng = useAppStore(state => state.locationLng) ?? 46.6753;
+
+  // Generate days from appStartDate up to today
   const getDaysList = () => {
     const list = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      list.push(d);
+    const now = new Date();
+    // Normalize `now` to exactly midnight for safe iteration
+    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    
+    // Safety fallback: if appStartDate is somehow invalid or too old, we can limit it. But we'll trust it.
+    let iterDate = new Date(appStartDateStr);
+    
+    // Safety check: if somehow it's ahead of today (bug), just default to today
+    if (iterDate > todayEnd) {
+      iterDate = new Date(todayEnd);
+    }
+
+    // Limit to max 365 days in the ScrollView to prevent memory issues on very old installs
+    const daysDiff = Math.floor((todayEnd.getTime() - iterDate.getTime()) / (1000 * 3600 * 24));
+    if (daysDiff > 365) {
+      iterDate = new Date(todayEnd);
+      iterDate.setDate(iterDate.getDate() - 365);
+    }
+
+    while (iterDate <= todayEnd) {
+      list.push(new Date(iterDate));
+      iterDate.setDate(iterDate.getDate() + 1);
     }
     return list;
   };
   const daysList = getDaysList();
 
-  // May 2026 Monthly Stats Calculation
+  // Monthly Stats Calculation strictly based on App Start Date
   const getMonthlyStats = () => {
     let completedCount = 0;
     let missedCount = 0;
+    let qazaCount = 0;
     let totalCount = 0;
     const trackedDaysSet = new Set<string>();
 
-    Object.keys(records).forEach(dateStr => {
-      const currentYearMonth = new Date().toISOString().substring(0, 7); // e.g. "2026-05"
-      if (dateStr.startsWith(currentYearMonth)) {
-        const dayRecords = records[dateStr] || [];
-        dayRecords.forEach(r => {
-          totalCount++;
-          if (r.status === 'Completed' || r.status === 'Jamath' || r.status === 'Individual') {
-            completedCount++;
-          } else if (r.status === 'Missed' || r.status === 'Qaza') {
-            missedCount++;
-          }
-        });
-        if (dayRecords.length > 0) {
-          trackedDaysSet.add(dateStr);
-        }
-      }
-    });
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
 
-    const completionRate = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+    // Determine iteration bounds
+    const monthStart = new Date(currentYear, currentMonth, 1);
+    const appStart = new Date(appStartDateStr);
+    
+    // Start date is the LATER of monthStart or appStart
+    let iterDate = monthStart > appStart ? monthStart : appStart;
+    
+    // End date is Today
+    const iterEnd = new Date(currentYear, currentMonth, now.getDate());
+
+    const prayerNames = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'];
+
+    while (iterDate <= iterEnd) {
+      const dateStr = iterDate.toISOString().split('T')[0];
+      const isToday = dateStr === now.toISOString().split('T')[0];
+      
+      const dayRecords = records[dateStr] || [];
+      if (dayRecords.length > 0) trackedDaysSet.add(dateStr);
+
+      let times = null;
+      if (isToday) {
+        times = getPrayerTimesForDate(now, locationLat, locationLng);
+      }
+
+      prayerNames.forEach(name => {
+        const record = dayRecords.find(r => r.prayerName === name);
+        
+        let isEligible = true;
+        if (isToday && times) {
+          const prayerTime = times[name.toLowerCase() as keyof typeof times] as Date;
+          if (prayerTime && prayerTime > now) {
+            isEligible = false; // Time hasn't passed yet
+          }
+        }
+
+        if (isEligible) {
+          totalCount++;
+          if (record) {
+             if (record.status === 'Completed' || record.status === 'Jamath' || record.status === 'Individual') {
+               completedCount++;
+             } else if (record.status === 'Qaza') {
+               qazaCount++;
+             } else if (record.status === 'Missed') {
+               missedCount++;
+             }
+          } else {
+             // No record, but time has passed since they started using the app!
+             missedCount++;
+          }
+        }
+      });
+      
+      iterDate.setDate(iterDate.getDate() + 1);
+    }
+
+    const completionRate = totalCount > 0 ? Math.round(((completedCount + qazaCount) / totalCount) * 100) : 0;
 
     return {
       completed: completedCount,
       pending: missedCount,
+      qaza: qazaCount,
       trackedDays: trackedDaysSet.size,
       completionRate,
       totalPrayers: totalCount,
@@ -68,12 +137,31 @@ export default function ReportScreen() {
 
   // Get active prayers state for selected date
   const selectedDayRecords = records[selectedDate] || [];
+  const selectedDateObj = new Date(selectedDate);
+  const prayerTimes = getPrayerTimesForDate(selectedDateObj, locationLat, locationLng);
+  const now = new Date();
+
   const prayers = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'].map(name => {
     const record = selectedDayRecords.find(r => r.prayerName === name);
+    const prayerTimeKey = name.toLowerCase() as keyof typeof prayerTimes;
+    // For future dates, all are future. For today, compare time. For past, none are future.
+    let isFuture = false;
+    if (selectedDate > now.toISOString().split('T')[0]) {
+      isFuture = true;
+    } else if (selectedDate === now.toISOString().split('T')[0]) {
+      isFuture = prayerTimes[prayerTimeKey] > now;
+    }
+    
+    let status = record ? record.status : ('Not Tracked' as const);
+    if (isFuture) {
+      status = 'Upcoming' as any;
+    }
+    
     return {
       name,
-      status: record ? record.status : ('Not Tracked' as const),
+      status,
       completed: record ? (record.status === 'Completed' || record.status === 'Jamath' || record.status === 'Individual') : false,
+      isFuture,
     };
   });
 
@@ -150,6 +238,16 @@ export default function ReportScreen() {
             showsHorizontalScrollIndicator={false} 
             contentContainerStyle={styles.calendarContainer}
             style={styles.calendarScroll}
+            scrollEventThrottle={16}
+            onScroll={(event) => {
+              const xOffset = event.nativeEvent.contentOffset.x;
+              // item width is 60, gap is 10 = ~70 offset per item
+              const currentIndex = Math.floor(Math.max(0, xOffset) / 70);
+              if (currentIndex !== lastTickIndex.current) {
+                lastTickIndex.current = currentIndex;
+                Haptics.selectionAsync();
+              }
+            }}
           >
             {daysList.map((day) => {
               const dateStr = day.toISOString().split('T')[0];
@@ -190,7 +288,12 @@ export default function ReportScreen() {
           </ScrollView>
 
           {/* Selected Date Checklist */}
-          <GlassCard style={styles.checklistCard} intensity="dark">
+          <ImageBackground 
+            source={require('../../assets/islamic_pattern.png')} 
+            style={[styles.checklistCard, { backgroundColor: '#0A1A0F' }]}
+            imageStyle={{ borderRadius: 24, opacity: 0.25 }}
+            resizeMode="cover"
+          >
             <View style={styles.checklistHeader}>
               <Text style={styles.checklistTitle}>
                 {new Date(selectedDate).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
@@ -199,62 +302,89 @@ export default function ReportScreen() {
             </View>
             <View style={styles.checklistList}>
               {prayers.map((prayer) => (
-                <View key={prayer.name} style={styles.checklistItem}>
+                <TouchableOpacity 
+                  key={prayer.name} 
+                  style={styles.checklistItem}
+                  onPress={() => togglePrayer(prayer.name)}
+                  disabled={prayer.isFuture}
+                  activeOpacity={0.7}
+                >
                   <View style={styles.checklistLeft}>
-                    <TouchableOpacity onPress={() => togglePrayer(prayer.name)}>
-                      {prayer.completed ? (
-                        <View style={styles.checkedIndicator}>
-                          <CircleCheck color={colors.white} size={22} />
-                        </View>
-                      ) : (
-                        <Circle color={colors.textSecondary} size={22} />
-                      )}
-                    </TouchableOpacity>
-                    <Text style={styles.checklistPrayerName}>{prayer.name}</Text>
+                    {prayer.completed ? (
+                      <View style={styles.checkedIndicator}>
+                        <CircleCheck color={colors.white} size={22} />
+                      </View>
+                    ) : (
+                      <Circle color={colors.textSecondary} size={22} />
+                    )}
+                    <Text style={styles.checklistPrayerName}>
+                      {prayer.name}
+                    </Text>
                   </View>
                   <View style={[
                     styles.statusBadge,
                     prayer.status === 'Completed' && styles.statusBadgeCompleted,
                     prayer.status === 'Missed' && styles.statusBadgeMissed,
-                    prayer.status === 'Not Tracked' && styles.statusBadgeEmpty,
+                    (prayer.status === 'Not Tracked' || prayer.status === 'Upcoming') && styles.statusBadgeEmpty,
                   ]}>
                     <Text style={[
                       styles.statusBadgeText,
                       prayer.status === 'Completed' && styles.statusBadgeTextCompleted,
                       prayer.status === 'Missed' && styles.statusBadgeTextMissed,
-                      prayer.status === 'Not Tracked' && styles.statusBadgeTextEmpty,
+                      (prayer.status === 'Not Tracked' || prayer.status === 'Upcoming') && styles.statusBadgeTextEmpty,
                     ]}>
                       {prayer.status}
                     </Text>
                   </View>
-                </View>
+                </TouchableOpacity>
               ))}
             </View>
-          </GlassCard>
+          </ImageBackground>
 
           {/* Dynamic Stats Card */}
-          <Text style={styles.sectionTitle}>This Month Summary</Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Summary</Text>
+            <Text style={{ color: colors.accent, fontFamily: typography.fonts.medium, fontSize: 13, marginRight: 10 }}>
+              Since {appStartDateStr}
+            </Text>
+          </View>
           <GlassCard style={styles.statsCard} intensity="dark">
             <View style={styles.statsRow}>
               <View style={styles.progressContainer}>
                 <CircularProgress percentage={monthlyStats.completionRate} radius={40} strokeWidth={6} color={colors.accent} />
               </View>
               <View style={styles.statsRightGrid}>
-                <View style={styles.statItem}>
-                  <Text style={styles.statLabel}>Completed</Text>
-                  <Text style={styles.statValue}>{monthlyStats.completed} Prayers</Text>
+                <View style={styles.statRowFlex}>
+                  <View style={styles.statItemFlex}>
+                    <Text style={styles.statLabel}>Completed</Text>
+                    <Text style={styles.statValue}>{monthlyStats.completed}</Text>
+                  </View>
+                  <View style={[styles.statItemFlex, { alignItems: 'flex-end' }]}>
+                    <Text style={styles.statLabel}>Missed (Kalah)</Text>
+                    <Text style={[styles.statValue, { color: colors.warning }]}>{monthlyStats.pending}</Text>
+                  </View>
                 </View>
-                <View style={[styles.statItem, { alignItems: 'flex-end' }]}>
-                  <Text style={styles.statLabel}>Pending (Qaza)</Text>
-                  <Text style={[styles.statValue, { color: colors.warning }]}>{monthlyStats.pending} missed</Text>
+                
+                <View style={styles.statRowFlex}>
+                  <View style={styles.statItemFlex}>
+                    <Text style={styles.statLabel}>Made Up</Text>
+                    <Text style={[styles.statValue, { color: colors.accent }]}>{monthlyStats.qaza}</Text>
+                  </View>
+                  <View style={[styles.statItemFlex, { alignItems: 'flex-end' }]}>
+                    <Text style={styles.statLabel}>Total Eligible</Text>
+                    <Text style={styles.statValue}>{monthlyStats.totalPrayers}</Text>
+                  </View>
                 </View>
-                <View style={[styles.statItem, { marginTop: 20 }]}>
-                  <Text style={styles.statLabel}>Days Tracked</Text>
-                  <Text style={styles.statValue}>{monthlyStats.trackedDays} Days</Text>
-                </View>
-                <View style={[styles.statItem, { alignItems: 'flex-end', marginTop: 20 }]}>
-                  <Text style={styles.statLabel}>Total Logs</Text>
-                  <Text style={styles.statValue}>{monthlyStats.totalPrayers} entries</Text>
+
+                <View style={styles.statRowFlex}>
+                  <View style={styles.statItemFlex}>
+                    <Text style={styles.statLabel}>Tracked</Text>
+                    <Text style={styles.statValue}>{monthlyStats.trackedDays} Days</Text>
+                  </View>
+                  <View style={[styles.statItemFlex, { alignItems: 'flex-end' }]}>
+                    <Text style={styles.statLabel}>Total Logs</Text>
+                    <Text style={styles.statValue}>{monthlyStats.totalPrayers}</Text>
+                  </View>
                 </View>
               </View>
             </View>
@@ -377,12 +507,16 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   checklistCard: {
-    backgroundColor: '#0F38194D',
     padding: 20,
     borderRadius: 24,
     marginBottom: 30,
     borderWidth: 1,
-    borderColor: `${colors.highlight}15`,
+    borderColor: `${colors.highlight}30`,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 15,
+    elevation: 8,
   },
   checklistHeader: {
     flexDirection: 'row',
@@ -473,12 +607,17 @@ const styles = StyleSheet.create({
   },
   statsRightGrid: {
     flex: 1,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: 'column',
     justifyContent: 'space-between',
+    gap: 12,
   },
-  statItem: {
-    width: '45%',
+  statRowFlex: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  statItemFlex: {
+    flex: 1,
   },
   statLabel: {
     fontFamily: typography.fonts.regular,

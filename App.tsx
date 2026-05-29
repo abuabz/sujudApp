@@ -6,6 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as Notifications from 'expo-notifications';
 import AppNavigator from './src/navigation/AppNavigator';
 import { HomeSkeleton } from './src/components/ui/HomeSkeleton';
+import { schedulePrayerNotifications } from './src/services/notifications';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -20,12 +21,15 @@ if (Platform.OS === 'android') {
   Notifications.setNotificationChannelAsync('normal', {
     name: 'Normal Sound',
     importance: Notifications.AndroidImportance.MAX,
-    sound: 'normaltune.wav',
+    sound: 'normaltune', // No extension on Android
   });
-  Notifications.setNotificationChannelAsync('bank', {
-    name: 'Bank Sound',
+  // Delete old broken channel
+  Notifications.deleteNotificationChannelAsync('bank').catch(() => {});
+  
+  Notifications.setNotificationChannelAsync('azaan_custom_1', {
+    name: 'Azaan Sound',
     importance: Notifications.AndroidImportance.MAX,
-    sound: 'bank.mp3',
+    sound: 'allah_ho_akbar_4969', // No extension on Android
   });
 }
 
@@ -49,6 +53,9 @@ export default function App() {
         'Stapel-SemiExpanded': require('./assets/fonts/Stapel_Semi-Expanded-Medium.ttf'),
       });
       setFontsLoaded(true);
+      
+      // Schedule automated prayer notifications on boot
+      schedulePrayerNotifications().catch(e => console.log('Failed to schedule notifications:', e));
     }
     loadFonts();
 

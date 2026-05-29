@@ -36,9 +36,12 @@
         "expo-notifications",
         {
           "icon": "./assets/icon.png",
-          "color": "#0B1F12"
+          "color": "#0B1F12",
+          "sounds": ["./assets/normaltune.wav", "./assets/allah_ho_akbar_4969.mp3"]
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker",
+      "expo-sharing"
     ],
     "extra": {
       "eas": {

@@ -13,7 +13,11 @@ import QazaManagerScreen from '../screens/QazaManagerScreen';
 import AnalyticsScreen from '../screens/AnalyticsScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import MapScreen from '../screens/MapScreen';
+import QiblaScreen from '../screens/QiblaScreen';
+import { OnboardingScreen } from '../screens/OnboardingScreen';
+import { useAppStore } from '../store/useAppStore';
 import { colors } from '../theme';
+import { schedulePrayerNotifications } from '../services/notifications';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -76,14 +80,36 @@ function MainTabs() {
 }
 
 export default function AppNavigator() {
+  const { isFirstLaunch } = useAppStore();
+
+  React.useEffect(() => {
+    const unsub = useAppStore.subscribe((state, prevState) => {
+      if (
+        state.notificationsEnabled !== prevState.notificationsEnabled ||
+        state.notificationSound !== prevState.notificationSound ||
+        state.locationLat !== prevState.locationLat
+      ) {
+        schedulePrayerNotifications().catch(e => console.log('Failed to reschedule:', e));
+      }
+    });
+    return () => unsub();
+  }, []);
+
   return (
     <NavigationContainer>
       <Stack.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}>
-        <Stack.Screen name="Main" component={MainTabs} />
-        <Stack.Screen name="QazaTracker" component={QazaManagerScreen} />
-        <Stack.Screen name="PrayerAnalytics" component={AnalyticsScreen} />
-        <Stack.Screen name="Notifications" component={NotificationsScreen} />
-        <Stack.Screen name="Map" component={MapScreen} />
+        {isFirstLaunch ? (
+          <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+        ) : (
+          <>
+            <Stack.Screen name="Main" component={MainTabs} />
+            <Stack.Screen name="QazaTracker" component={QazaManagerScreen} />
+            <Stack.Screen name="PrayerAnalytics" component={AnalyticsScreen} />
+            <Stack.Screen name="Notifications" component={NotificationsScreen} />
+            <Stack.Screen name="Map" component={MapScreen} />
+            <Stack.Screen name="Qibla" component={QiblaScreen} />
+          </>
+        )}
       </Stack.Navigator>
     </NavigationContainer>
   );
