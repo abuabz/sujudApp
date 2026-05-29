@@ -11,11 +11,12 @@ interface GlassCardProps extends ViewProps {
 
 export function GlassCard({ children, style, intensity = 'medium', blur = false, ...props }: GlassCardProps) {
   if (blur) {
-    const blurIntensity = intensity === 'light' ? 30 : intensity === 'medium' ? 60 : 90;
+    const blurIntensity = intensity === 'light' ? 40 : intensity === 'medium' ? 80 : 120;
     return (
       <BlurView 
         intensity={blurIntensity} 
         tint="dark"
+        experimentalBlurMethod="dimezisBlurView"
         style={[styles.card, { backgroundColor: 'transparent' }, style]}
         {...props}
       >

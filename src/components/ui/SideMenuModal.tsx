@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, Animated, Dimensions, TouchableWithoutFeedback, Linking, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, Animated, Dimensions, TouchableWithoutFeedback, Linking, Alert, Pressable } from 'react-native';
 import { X, Home, Settings, Info, Globe, Heart } from 'lucide-react-native';
 import { useNavigation, NavigationProp } from '@react-navigation/native';
 import { colors, typography } from '../../theme';
@@ -51,12 +51,13 @@ export const SideMenuModal = ({ visible, onClose }: SideMenuModalProps) => {
   return (
     <Modal transparent visible={visible} onRequestClose={onClose} animationType="none">
       <View style={styles.overlay}>
-        <TouchableWithoutFeedback onPress={onClose}>
-          <View style={styles.backdrop} />
-        </TouchableWithoutFeedback>
+        <Pressable 
+          style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.5)' }]} 
+          onPress={onClose} 
+        />
 
         <Animated.View style={[styles.menuContainer, { transform: [{ translateX: slideAnim }] }]}>
-          <GlassCard style={styles.glassContainer} intensity="dark">
+          <GlassCard style={styles.glassContainer} intensity="dark" blur={true}>
             <View style={styles.header}>
               <Text style={styles.logoText}>سُجُود</Text>
               <TouchableOpacity onPress={onClose} style={styles.closeButton}>
@@ -131,10 +132,6 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
   },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-  },
   menuContainer: {
     width: width * 0.75,
     height: '100%',
@@ -146,7 +143,7 @@ const styles = StyleSheet.create({
     borderRightColor: 'rgba(255,255,255,0.1)',
     paddingTop: 50,
     paddingHorizontal: 20,
-    backgroundColor: 'rgba(11, 31, 18, 0.95)',
+    backgroundColor: 'transparent',
   },
   header: {
     flexDirection: 'row',
