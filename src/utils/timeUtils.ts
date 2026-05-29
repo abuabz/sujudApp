@@ -40,5 +40,5 @@ export function formatCountdown(targetTime: Date, now: Date): string {
 }
 
 export function formatTime(date: Date): string {
-  return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).toUpperCase();
 }

@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ImageBackground } from 'react-native';
+import React, { useEffect, useState, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ImageBackground, Animated } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import tz_lookup from 'tz-lookup';
 import { colors, typography } from '../theme';
@@ -7,26 +7,30 @@ import { GlassCard } from '../components/ui/GlassCard';
 import { GradientBackground } from '../components/ui/GradientBackground';
 import { CircularProgress } from '../components/ui/CircularProgress';
 import { HomeSkeleton } from '../components/ui/HomeSkeleton';
-import { Menu, Bell, Sun, Moon, Sunrise, CircleCheck, Circle } from 'lucide-react-native';
+import { Menu, Bell, Sun, Moon, Sunrise, CircleCheck, Circle, Sparkles } from 'lucide-react-native';
 import * as Location from 'expo-location';
 import { getPrayerTimesForDate, PrayerTimesData } from '../services/prayerTimes';
 import { getNextPrayer, formatCountdown, formatTime, PrayerName, NextPrayerResult } from '../utils/timeUtils';
 import { usePrayerStore, PrayerName as StorePrayerName } from '../store/usePrayerStore';
 import { useAppStore } from '../store/useAppStore';
+import { schedulePrayerNotifications } from '../services/notifications';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SideMenuModal } from '../components/ui/SideMenuModal';
 import { Calendar, AlertCircle, MapPin, Compass } from 'lucide-react-native';
+import * as Notifications from 'expo-notifications';
 
 export default function HomeScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  
+
   const [loading, setLoading] = useState(true);
   const [prayerTimes, setPrayerTimes] = useState<PrayerTimesData | null>(null);
   const [nextPrayer, setNextPrayer] = useState<NextPrayerResult | null>(null);
   const [timeLeft, setTimeLeft] = useState('00:00:00');
   const [localTime, setLocalTime] = useState('');
+
+  const jumaPulseAnim = useRef(new Animated.Value(0)).current;
 
   const addRecord = usePrayerStore(state => state.addRecord);
   const records = usePrayerStore(state => state.records);
@@ -55,6 +59,9 @@ export default function HomeScreen() {
         timestamp: Date.now(),
       });
     }
+
+    // Reschedule notifications in background to update smart warnings
+    schedulePrayerNotifications().catch(e => console.log('Failed to reschedule notifications:', e));
   };
 
   const isCompleted = (prayerName: string) => {
@@ -72,7 +79,7 @@ export default function HomeScreen() {
       { name: 'Maghrib', time: prayerTimes.maghrib },
       { name: 'Isha', time: prayerTimes.isha },
     ];
-    
+
     prayers.forEach(p => {
       if (p.time < now) {
         // Time has passed. Did they complete it?
@@ -120,7 +127,7 @@ export default function HomeScreen() {
               lat = location.coords.latitude;
               lng = location.coords.longitude;
             }
-            
+
             // Do not block rendering for reverse geocode
             Location.reverseGeocodeAsync({ latitude: lat, longitude: lng }).then(geocode => {
               if (geocode && geocode.length > 0) {
@@ -134,7 +141,7 @@ export default function HomeScreen() {
           console.log('Error getting location, using default', error);
         }
       }
-      
+
       const times = getPrayerTimesForDate(new Date(), lat, lng);
       setPrayerTimes(times);
 
@@ -153,7 +160,7 @@ export default function HomeScreen() {
 
   useEffect(() => {
     if (!prayerTimes) return;
-    
+
     let tz = 'Asia/Riyadh';
     try {
       if (locationLat && locationLng) {
@@ -168,7 +175,7 @@ export default function HomeScreen() {
       const next = getNextPrayer(prayerTimes, now);
       setNextPrayer(next);
       setTimeLeft(formatCountdown(next.time, now));
-      
+
       try {
         setLocalTime(now.toLocaleTimeString('en-US', {
           timeZone: tz,
@@ -186,7 +193,71 @@ export default function HomeScreen() {
     return () => clearInterval(interval);
   }, [prayerTimes, locationLat, locationLng]);
 
+  const appStartDateStr = useAppStore(state => state.appStartDate);
+
   const now = new Date();
+
+  const getMonthlyStats = () => {
+    let completedCount = 0;
+    let missedCount = 0;
+    let qazaCount = 0;
+    let totalCount = 0;
+
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+
+    const monthStart = new Date(currentYear, currentMonth, 1);
+    const appStart = new Date(appStartDateStr || new Date().toISOString());
+    let iterDate = monthStart > appStart ? monthStart : appStart;
+    const iterEnd = new Date(currentYear, currentMonth, now.getDate());
+
+    const prayerNames = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'];
+
+    while (iterDate <= iterEnd) {
+      const dateStr = iterDate.toISOString().split('T')[0];
+      const isToday = dateStr === now.toISOString().split('T')[0];
+
+      const dayRecords = records[dateStr] || [];
+      let times = null;
+      if (isToday) {
+        times = getPrayerTimesForDate(now, locationLat ?? 24.7136, locationLng ?? 46.6753);
+      }
+
+      prayerNames.forEach(name => {
+        const record = dayRecords.find(r => r.prayerName === name);
+        let isEligible = true;
+        if (isToday && times) {
+          const prayerTime = times[name.toLowerCase() as keyof typeof times] as Date;
+          if (prayerTime && prayerTime > now) {
+            isEligible = false;
+          }
+        }
+
+        if (isEligible) {
+          totalCount++;
+          if (record) {
+            if (record.status === 'Completed' || record.status === 'Jamath' || record.status === 'Individual') {
+              completedCount++;
+            } else if (record.status === 'Qaza') {
+              qazaCount++;
+            } else if (record.status === 'Missed') {
+              missedCount++;
+            }
+          } else {
+            missedCount++;
+          }
+        }
+      });
+      iterDate.setDate(iterDate.getDate() + 1);
+    }
+    const completionRate = totalCount > 0 ? Math.round(((completedCount + qazaCount) / totalCount) * 100) : 0;
+    return { completed: completedCount, pending: missedCount, qaza: qazaCount, completionRate, totalPrayers: totalCount };
+  };
+
+  const monthlyStats = getMonthlyStats();
+
+  const isFriday = new Date().getDay() === 5;
+
   const prayers = prayerTimes ? [
     { name: 'Fajr', time: formatTime(prayerTimes.fajr), icon: Moon, current: nextPrayer?.name === 'Fajr', isFuture: prayerTimes.fajr > now },
     { name: 'Dhuhr', time: formatTime(prayerTimes.dhuhr), icon: Sun, current: nextPrayer?.name === 'Dhuhr', isFuture: prayerTimes.dhuhr > now },
@@ -194,6 +265,31 @@ export default function HomeScreen() {
     { name: 'Maghrib', time: formatTime(prayerTimes.maghrib), icon: Sunrise, current: nextPrayer?.name === 'Maghrib', isFuture: prayerTimes.maghrib > now },
     { name: 'Isha', time: formatTime(prayerTimes.isha), icon: Moon, current: nextPrayer?.name === 'Isha', isFuture: prayerTimes.isha > now },
   ] : [];
+
+  const NextPrayerIcon = prayers.find(p => p.name === nextPrayer?.name)?.icon || Sun;
+  // TEMPORARY FOR TESTING: Force Juma next
+  const isJumaNext = isFriday && nextPrayer?.name === 'Dhuhr';
+
+  useEffect(() => {
+    if (isJumaNext) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(jumaPulseAnim, {
+            toValue: 1,
+            duration: 1500,
+            useNativeDriver: false,
+          }),
+          Animated.timing(jumaPulseAnim, {
+            toValue: 0,
+            duration: 1500,
+            useNativeDriver: false,
+          })
+        ])
+      ).start();
+    } else {
+      jumaPulseAnim.setValue(0);
+    }
+  }, [isJumaNext, jumaPulseAnim]);
 
   if (loading) {
     return <HomeSkeleton />;
@@ -218,7 +314,8 @@ export default function HomeScreen() {
         </View>
 
         <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
-          
+
+
           {/* Location & Local Time Banner */}
           <View style={styles.locationBanner}>
             <MapPin color={colors.textSecondary} size={16} />
@@ -230,17 +327,48 @@ export default function HomeScreen() {
           </View>
 
           {/* Next Prayer Card */}
-          <GlassCard style={styles.nextPrayerCard} intensity="dark">
-            <View style={styles.nextPrayerHeader}>
-              <Text style={styles.nextPrayerLabel}>Next Prayer</Text>
-              <Sun color={colors.accent} size={20} />
-            </View>
-            <View style={styles.nextPrayerTimeRow}>
-              <Text style={styles.nextPrayerName}>{nextPrayer ? nextPrayer.name : '...'}</Text>
-              <Text style={styles.nextPrayerTime}>{nextPrayer ? formatTime(nextPrayer.time) : '...'}</Text>
-            </View>
-            <Text style={styles.nextPrayerCountdown}>{timeLeft} remaining</Text>
-          </GlassCard>
+          <Animated.View style={isJumaNext ? {
+            shadowColor: '#D4AF37',
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: jumaPulseAnim.interpolate({ inputRange: [0, 1], outputRange: [0.3, 0.9] }),
+            shadowRadius: jumaPulseAnim.interpolate({ inputRange: [0, 1], outputRange: [8, 20] }),
+            elevation: 10,
+            borderRadius: 20,
+            borderColor: jumaPulseAnim.interpolate({
+              inputRange: [0, 1],
+              outputRange: ['rgba(212, 175, 55, 0.3)', 'rgba(212, 175, 55, 1)']
+            }),
+            borderWidth: 2,
+            marginBottom: 30,
+            width: '100%',
+            backgroundColor: 'transparent'
+          } : { width: '100%' }}>
+            <GlassCard style={[styles.nextPrayerCard, isJumaNext && { marginBottom: 0, borderWidth: 0 }]} intensity="dark">
+              <View style={styles.nextPrayerHeader}>
+                <Text style={[styles.nextPrayerLabel, isJumaNext && { color: '#D4AF37' }]}>Next Prayer</Text>
+                <NextPrayerIcon color={isJumaNext ? '#D4AF37' : colors.accent} size={20} />
+              </View>
+              <View style={styles.nextPrayerTimeRow}>
+                {isJumaNext ? (
+                  <View style={{ position: 'relative' }}>
+                    <Text style={[styles.nextPrayerName, { color: '#D4AF37', textShadowColor: 'rgba(212, 175, 55, 0.5)', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 10 }]}>Juma</Text>
+                    <Animated.View style={{
+                      position: 'absolute',
+                      top: -6,
+                      right: -14,
+                      opacity: jumaPulseAnim.interpolate({ inputRange: [0, 1], outputRange: [0.2, 1] })
+                    }}>
+                      <Sparkles color="#D4AF37" size={16} />
+                    </Animated.View>
+                  </View>
+                ) : (
+                  <Text style={styles.nextPrayerName}>{nextPrayer ? nextPrayer.name : '...'}</Text>
+                )}
+                <Text style={styles.nextPrayerTime}>{nextPrayer ? formatTime(nextPrayer.time) : '...'}</Text>
+              </View>
+              <Text style={styles.nextPrayerCountdown}>{timeLeft} remaining</Text>
+            </GlassCard>
+          </Animated.View>
 
           {/* Daily Highlights */}
           <View style={styles.highlightsContainer}>
@@ -268,22 +396,22 @@ export default function HomeScreen() {
             <Text style={styles.sectionTitle}>Today's Prayer Times</Text>
             <View style={styles.prayersRow}>
               {prayers.map((prayer) => (
-                <TouchableOpacity 
-                  key={prayer.name} 
+                <TouchableOpacity
+                  key={prayer.name}
                   style={styles.prayerItem}
                   onPress={() => togglePrayerCompletion(prayer.name as StorePrayerName)}
                   disabled={prayer.isFuture}
                   activeOpacity={0.7}
                 >
                   <View style={[styles.prayerIconWrapper, prayer.current && styles.prayerIconWrapperActive]}>
-                    <prayer.icon 
-                      color={prayer.current ? colors.highlight : colors.accent} 
-                      size={28} 
+                    <prayer.icon
+                      color={prayer.current ? colors.highlight : colors.accent}
+                      size={28}
                       style={styles.prayerIcon}
                     />
                   </View>
                   <Text style={[styles.prayerItemName, prayer.current && { color: colors.text }]}>
-                    {prayer.name}
+                    {isFriday && prayer.name === 'Dhuhr' ? 'Juma' : prayer.name}
                   </Text>
                   <Text style={[styles.prayerItemTime, prayer.current && { color: colors.accent }]}>
                     {prayer.time}
@@ -305,16 +433,16 @@ export default function HomeScreen() {
           {/* Qibla Finder Banner */}
           <TouchableOpacity onPress={() => navigation.navigate('Qibla')} activeOpacity={0.9} style={{ marginBottom: 30 }}>
             <View style={{ borderRadius: 20, overflow: 'hidden', height: 140 }}>
-              <ImageBackground 
-                source={require('../../assets/kaaba_banner.png')} 
+              <ImageBackground
+                source={require('../../assets/kaaba_banner.png')}
                 style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20 }}
                 resizeMode="cover"
               >
                 <View style={{ flex: 1, zIndex: 2 }}>
-                  <Text style={{ fontFamily: typography.fonts.bold, fontSize: 22, color: '#FFF', textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: {width: 0, height: 2}, textShadowRadius: 4 }}>Qibla Finder</Text>
-                  <Text style={{ fontFamily: typography.fonts.medium, fontSize: 14, color: 'rgba(255,255,255,0.9)', marginTop: 4, textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: {width: 0, height: 1}, textShadowRadius: 3 }}>Find the direction to Mecca</Text>
+                  <Text style={{ fontFamily: typography.fonts.bold, fontSize: 22, color: '#FFF', textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 4 }}>Qibla Finder</Text>
+                  <Text style={{ fontFamily: typography.fonts.medium, fontSize: 14, color: 'rgba(255,255,255,0.9)', marginTop: 4, textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 }}>Find the direction to Mecca</Text>
                 </View>
-                <View style={{ backgroundColor: 'rgba(212,175,55,0.8)', padding: 10, borderRadius: 24, zIndex: 2, shadowColor: '#000', shadowOffset: {width: 0, height: 4}, shadowOpacity: 0.3, shadowRadius: 4 }}>
+                <View style={{ backgroundColor: 'rgba(212,175,55,0.8)', padding: 10, borderRadius: 24, zIndex: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 4 }}>
                   <Compass color="#FFF" size={24} />
                 </View>
               </ImageBackground>
@@ -326,7 +454,7 @@ export default function HomeScreen() {
             <Text style={styles.sectionTitle}>This Month Overview</Text>
             <GlassCard style={styles.overviewCard} intensity="dark">
               <View style={styles.overviewLeft}>
-                <CircularProgress percentage={85} radius={45} strokeWidth={6} color={colors.accent} />
+                <CircularProgress percentage={monthlyStats.completionRate} radius={45} strokeWidth={6} color={colors.accent} />
                 <View style={styles.overviewLeftTextContainer}>
                   <Text style={styles.overviewLabelText}>Prayers</Text>
                   <Text style={styles.overviewLabelText}>Completed</Text>
@@ -335,11 +463,11 @@ export default function HomeScreen() {
               <View style={styles.overviewRight}>
                 <View style={styles.overviewStatBox}>
                   <Text style={styles.overviewStatLabel}>Total Prayers</Text>
-                  <Text style={styles.overviewStatValue}>124/150</Text>
+                  <Text style={styles.overviewStatValue}>{monthlyStats.completed + monthlyStats.qaza}/{monthlyStats.totalPrayers}</Text>
                 </View>
                 <View style={styles.overviewStatBox}>
                   <Text style={styles.overviewStatLabel}>Missed (Qaza)</Text>
-                  <Text style={styles.overviewStatValue}>26</Text>
+                  <Text style={styles.overviewStatValue}>{monthlyStats.pending}</Text>
                 </View>
               </View>
             </GlassCard>
@@ -437,7 +565,7 @@ const styles = StyleSheet.create({
   nextPrayerName: {
     fontFamily: typography.fonts.primary,
     color: colors.text,
-    fontSize: typography.sizes.display,
+    fontSize: typography.sizes.big,
   },
   nextPrayerTime: {
     fontFamily: typography.fonts.medium,

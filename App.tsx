@@ -18,18 +18,20 @@ Notifications.setNotificationHandler({
 
 // Configure Custom Android Audio Channels
 if (Platform.OS === 'android') {
-  Notifications.setNotificationChannelAsync('normal', {
+  Notifications.deleteNotificationChannelAsync('normal').catch(() => {});
+  Notifications.deleteNotificationChannelAsync('azaan_custom_1').catch(() => {});
+  Notifications.deleteNotificationChannelAsync('bank').catch(() => {});
+
+  Notifications.setNotificationChannelAsync('normal_v2', {
     name: 'Normal Sound',
     importance: Notifications.AndroidImportance.MAX,
-    sound: 'normaltune', // No extension on Android
+    sound: 'normaltune',
   });
-  // Delete old broken channel
-  Notifications.deleteNotificationChannelAsync('bank').catch(() => {});
   
-  Notifications.setNotificationChannelAsync('azaan_custom_1', {
+  Notifications.setNotificationChannelAsync('azaan_custom_2', {
     name: 'Azaan Sound',
     importance: Notifications.AndroidImportance.MAX,
-    sound: 'allah_ho_akbar_4969', // No extension on Android
+    sound: 'allah_ho_akbar_4969',
   });
 }
 

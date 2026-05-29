@@ -156,12 +156,12 @@ export default function ProfileScreen() {
         title: "سُجُود | Sound Test",
         body: `Time for your prayer reminder! Active sound alert: ${notificationSound === 'normal' ? 'Normal Tune' : 'Azaan Sound'}.`,
         sound: notificationSound === 'normal' ? 'normaltune.wav' : 'allah_ho_akbar_4969.mp3', // Kept for iOS
-        categoryId: 'prayer_alert',
       },
-      trigger: {
+      trigger: { 
         type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-        seconds: 5,
-        channelId: notificationSound === 'normal' ? 'normal' : 'azaan_custom_1',
+        seconds: 3, 
+        repeats: false,
+        channelId: notificationSound === 'normal' ? 'normal_v2' : 'azaan_custom_2',
       },
       identifier: 'test_notification',
     });

@@ -13,6 +13,7 @@ export const typography = {
     xl: 20,
     xxl: 24,
     xxxl: 32,
+    big: 42,
     display: 48,
   },
   weights: {
